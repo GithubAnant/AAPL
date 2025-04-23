@@ -12,7 +12,7 @@ class CalendarPage extends StatefulWidget {
 
 class _CalendarPageState extends State<CalendarPage> {
   CalendarFormat _calendarFormat = CalendarFormat.month;
-  DateTime _focusedDay = DateTime(2024, 1, 1);
+  DateTime _focusedDay = DateTime(2023, 1, 1);
   DateTime? _selectedDay;
   
   // Move these variables to be class members instead of local to build

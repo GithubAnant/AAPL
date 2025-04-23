@@ -8,16 +8,17 @@ from ta.trend import SMAIndicator, MACD
 from ta.volatility import AverageTrueRange
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify
-from flask_cors import CORS  # Optional but useful for local dev with Flutter
+from flask_cors import CORS  
+
+
 
 app = Flask(__name__)
-CORS(app)  # Allow cross-origin requests for dev/testing
+CORS(app)  
 
-# Step 1: Download Apple stock data - include data up to current date to allow predictions
 start_date = '2013-01-01'
 train_end_date = '2023-01-01'
-end_date = '2025-03-31'  # Include data up to the most recent date needed for predictions
-df = None  # Initialize df outside the try block
+end_date = '2024-08-01'  
+df = None  
 
 try:
     print("Downloading historical stock data...")
@@ -33,9 +34,7 @@ except Exception as e:
     import sys
     sys.exit(1)
 
-# Step 2: Feature Engineering with Technical Indicators and Lagged Prices
 print("Computing technical indicators...")
-# Use .squeeze() to convert to 1D series for the TA library
 df['SMA_5'] = SMAIndicator(close=df['Close'].squeeze(), window=5).sma_indicator()
 df['SMA_20'] = SMAIndicator(close=df['Close'].squeeze(), window=20).sma_indicator()
 df['RSI'] = RSIIndicator(close=df['Close'].squeeze(), window=14).rsi()
@@ -49,15 +48,13 @@ df['Month'] = df.index.month
 df['Day'] = df.index.day
 df['DayOfWeek'] = df.index.dayofweek
 
-# Add lagged closing prices
-for i in range(1, 6):  # Add lags of 1 to 5 days
+
+for i in range(1, 6):  
     df[f'Close_Lag{i}'] = df['Close'].shift(i)
 
-# Drop rows with NaN values that result from the lag features
 df_clean = df.dropna()
 print(f"After computing indicators and dropping NaN values: {len(df_clean)} days of data")
 
-# Step 3: Select Features and Target
 features = ['SMA_5', 'SMA_20', 'RSI', 'MACD', 'MACD_Signal', 'ATR',
             'Year', 'Month', 'Day', 'DayOfWeek'] + [f'Close_Lag{i}' for i in range(1, 6)]
 target = 'Close'
@@ -65,7 +62,6 @@ target = 'Close'
 X = df_clean[features]
 y = df_clean[target]
 
-# Step 4: Train the model on data up to train_end_date
 X_train = X[X.index <= train_end_date]
 y_train = y[y.index <= train_end_date]
 
@@ -75,18 +71,14 @@ model = RandomForestRegressor(n_estimators=1000, random_state=42, n_jobs=-1,
 model.fit(X_train, y_train)
 print("Model training complete")
 
-# Step 5: Function to Predict and Get Actual Price for a Given Date
 def predict_and_get_actual(query_date_str):
     try:
         query_date = pd.to_datetime(query_date_str)
 
-        # Check if date is within range
         if query_date < pd.to_datetime(start_date) or query_date > pd.to_datetime(end_date):
             return f"Please enter a date between {start_date} and {end_date}."
 
-        # Check if the date exists in our DataFrame
         if query_date not in df.index:
-            # Find the next trading day if this was a weekend or holiday
             days_to_check = 5  # Check up to 5 days forward
             found_date = None
 
@@ -119,6 +111,22 @@ def predict_and_get_actual(query_date_str):
     except Exception as e:
         return f"An error occurred: {str(e)}"
 
+X_test = X[X.index > train_end_date]
+y_test = y[y.index > train_end_date]
+
+y_pred = model.predict(X_test)
+y_true = y_test.values
+
+from sklearn.metrics import accuracy_score
+
+# Calculate RMSE
+from sklearn.metrics import mean_squared_error
+import numpy as np
+
+mse = mean_squared_error(y_true, y_pred)
+rmse = np.sqrt(mse)
+print(f"RMSE on test set: {rmse:.2f}")  
+
 @app.route('/predict', methods=['POST'])
 def predict_api():
     try:
@@ -135,3 +143,7 @@ def predict_api():
 if __name__ == '__main__':
     print("\nStarting Flask API...")
     app.run(debug=True)
+
+
+
+
