@@ -1,209 +1,117 @@
-import yfinance as yf
-import pandas as pd
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-import matplotlib.pyplot as plt
-from ta.momentum import RSIIndicator
-from ta.trend import SMAIndicator, MACD
-from ta.volatility import AverageTrueRange
-from datetime import datetime, timedelta
+from collections import defaultdict
+import random
+import cv2
 import numpy as np
+from queue import Queue
 
-# Step 1: Download Apple stock data - include data up to current date to allow predictions
-start_date = '2013-01-01'
-train_end_date = '2023-01-01'
-end_date = '2025-03-31'  # Include data up to the most recent date needed for predictions
 
-try:
-    print("Downloading historical stock data...")
-    df = yf.download('AAPL', start=start_date, end=end_date)
-    
-    if df.empty:
-        raise ValueError("Failed to download data from Yahoo Finance")
-    
-    print(f"Successfully downloaded {len(df)} days of data")
-except Exception as e:
-    print(f"Error downloading data: {str(e)}")
-    print("Try installing the latest version of yfinance with: pip install yfinance --upgrade")
-    import sys
-    sys.exit(1)
+class SnakeGame:
+    def __init__(self, h=600, w=810, game_speed=60):
+        self.cell_size = 30
+        self.h = h//self.cell_size*self.cell_size
+        self.w = w//self.cell_size*self.cell_size
+        self.game_speed = game_speed
+        self.grid_color = (1., 1., 1.)  # white
+        self.body_color = (0., 0., 0.)  # black
+        self.head_color = (0.5, 0.5, 0.5)  # grey
+        self.food_color = (0., 0., 1.)  # red
+        self.img = np.ones((h, w, 3))*self.grid_color
+        for y in range(0, self.h, self.cell_size):
+            for x in range(0, self.w, self.cell_size):
+                self.color_square((y, x), self.grid_color)
+        self.body = Queue()
+        self.initial_pos = (300//self.cell_size*self.cell_size,
+                            60//self.cell_size*self.cell_size)
+        self.head = self.initial_pos
+        self.body.put(self.initial_pos)
+        self.body.put(self.initial_pos)
+        self.body.put(self.initial_pos)
+        self.color_square(self.head, self.head_color)
+        self.food_pos = self.generate_food()
+        self.score = 0
+        self.direction = ''
+        self.game_over = False
+        self.move_map = defaultdict(lambda: (0, 0))
+        self.move_map.update({
+            'left': (0, -self.cell_size),
+            'right': (0, self.cell_size),
+            'up': (-self.cell_size, 0),
+            'down': (self.cell_size, 0)
+        })
 
-# Step 2: Feature Engineering with Technical Indicators and Lagged Prices
-print("Computing technical indicators...")
-# Use .squeeze() to convert to 1D series for the TA library
-df['SMA_5'] = SMAIndicator(close=df['Close'].squeeze(), window=5).sma_indicator()
-df['SMA_20'] = SMAIndicator(close=df['Close'].squeeze(), window=20).sma_indicator()
-df['RSI'] = RSIIndicator(close=df['Close'].squeeze(), window=14).rsi()
-macd = MACD(close=df['Close'].squeeze())
-df['MACD'] = macd.macd()
-df['MACD_Signal'] = macd.macd_signal()
-df['ATR'] = AverageTrueRange(high=df['High'].squeeze(), low=df['Low'].squeeze(), close=df['Close'].squeeze(), window=14).average_true_range()
 
-df['Year'] = df.index.year
-df['Month'] = df.index.month
-df['Day'] = df.index.day
-df['DayOfWeek'] = df.index.dayofweek
+    def color_square(self, pos, color):
+        y, x = pos
+        self.img[y:y+self.cell_size, x:x+self.cell_size] = color
 
-# Add lagged closing prices
-for i in range(1, 6):  # Add lags of 1 to 5 days
-    df[f'Close_Lag{i}'] = df['Close'].shift(i)
-
-# Drop rows with NaN values that result from the lag features
-df_clean = df.dropna()
-print(f"After computing indicators and dropping NaN values: {len(df_clean)} days of data")
-
-# Step 3: Select Features and Target
-features = ['SMA_5', 'SMA_20', 'RSI', 'MACD', 'MACD_Signal', 'ATR', 
-           'Year', 'Month', 'Day', 'DayOfWeek'] + [f'Close_Lag{i}' for i in range(1, 6)]
-target = 'Close'
-
-X = df_clean[features]
-y = df_clean[target]
-
-# Step 4: Train the model on data up to train_end_date
-X_train = X[X.index <= train_end_date]
-y_train = y[y.index <= train_end_date]
-
-print(f"Training model on {len(X_train)} days of data from {start_date} to {train_end_date}")
-model = RandomForestRegressor(n_estimators=1000, random_state=42, n_jobs=-1, 
-                             max_depth=25, min_samples_split=5, min_samples_leaf=2)
-model.fit(X_train, y_train)
-print("Model training complete")
-
-# NEW CODE: Calculate evaluation metrics on test data
-print("\nCalculating model evaluation metrics...")
-X_test = X[X.index > train_end_date]
-y_test = y[y.index > train_end_date]
-
-if len(X_test) > 0:
-    y_pred = model.predict(X_test)
-    
-    # Calculate metrics
-    mse = mean_squared_error(y_test, y_pred)
-    rmse = np.sqrt(mse)
-    mae = mean_absolute_error(y_test, y_pred)
-    r2 = r2_score(y_test, y_pred)
-    
-    # Calculate MAPE (Mean Absolute Percentage Error)
-    mape = np.mean(np.abs((y_test - y_pred) / y_test)) * 100
-    
-    print(f"\nEvaluation Metrics on Test Data ({train_end_date} to {end_date}):")
-    print(f"Mean Squared Error (MSE): {mse:.4f}")
-    print(f"Root Mean Squared Error (RMSE): {rmse:.4f}")
-    print(f"Mean Absolute Error (MAE): {mae:.4f}")
-    print(f"Mean Absolute Percentage Error (MAPE): {mape:.2f}%")
-    print(f"R-squared (R²): {r2:.4f}")
-    
-    # Create a DataFrame for actual vs predicted values
-    results_df = pd.DataFrame({
-        'Actual': y_test,
-        'Predicted': y_pred,
-        'Abs_Error': np.abs(y_test - y_pred),
-        'Pct_Error': np.abs((y_test - y_pred) / y_test) * 100
-    })
-    
-    # Display a sample of the results
-    print("\nSample of Actual vs Predicted values:")
-    print(results_df.head())
-    
-    # Plot actual vs predicted
-    plt.figure(figsize=(12, 6))
-    plt.plot(y_test.index, y_test.values, label='Actual Price')
-    plt.plot(y_test.index, y_pred, label='Predicted Price', linestyle='--')
-    plt.title('Apple Stock Price: Actual vs Predicted')
-    plt.xlabel('Date')
-    plt.ylabel('Price ($)')
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig('AAPL_actual_vs_predicted.png')
-    plt.close()
-    
-    # Plot error distribution
-    plt.figure(figsize=(10, 6))
-    plt.hist(results_df['Pct_Error'], bins=50)
-    plt.title('Percentage Error Distribution')
-    plt.xlabel('Percentage Error (%)')
-    plt.ylabel('Frequency')
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig('AAPL_error_distribution.png')
-    plt.close()
-    
-    print("\nPlots saved as 'AAPL_actual_vs_predicted.png' and 'AAPL_error_distribution.png'")
-else:
-    print("No test data available for evaluation")
-
-# Step 5: Function to Predict and Get Actual Price for a Given Date
-def predict_and_get_actual(query_date_str):
-    try:
-        query_date = pd.to_datetime(query_date_str)
-        
-        # Check if date is within range
-        if query_date < pd.to_datetime(start_date) or query_date > pd.to_datetime(end_date):
-            return f"Please enter a date between {start_date} and {end_date}."
-        
-        # Check if the date exists in our DataFrame
-        if query_date not in df.index:
-            # Find the next trading day if this was a weekend or holiday
-            days_to_check = 5  # Check up to 5 days forward
-            found_date = None
-            
-            for i in range(1, days_to_check + 1):
-                next_date = query_date + pd.Timedelta(days=i)
-                if next_date in df.index:
-                    found_date = next_date
-                    break
-            
-            if found_date:
-                return f"No data for {query_date_str} (likely a non-trading day). The next trading day was {found_date.strftime('%Y-%m-%d')}."
-            else:
-                return f"No data for {query_date_str} and couldn't find the next trading day within {days_to_check} days."
-        
-        # Get actual price directly from our dataframe
-        actual_price = float(df.loc[query_date, 'Close'])  # Convert to float to avoid Series formatting issue
-        
-        # For prediction, we need a complete row with all features
-        if query_date in df_clean.index:
-            # Use the features from our cleaned DataFrame for prediction
-            prediction_features = df_clean.loc[query_date, features].values.reshape(1, -1)
-            predicted_price = float(model.predict(prediction_features)[0])  # Convert to float
-            
-            return f"Date: {query_date_str}\nPredicted Price: ${predicted_price:.2f}\nActual Price: ${actual_price:.2f}"
+    def move(self):
+        delta = self.move_map[self.direction]
+        new_y, new_x = self.head[0]+delta[0], self.head[1]+delta[1]
+        if new_y < 0:
+            new_y = self.h - self.cell_size
+        elif new_y >= self.h:
+            new_y = 0
+        elif new_x < 0:
+            new_x = self.w - self.cell_size
+        elif new_x >= self.w:
+            new_x = 0
+        if (self.img[new_y, new_x] == self.body_color).all():
+            self.end_game()
         else:
-            return f"Date: {query_date_str}\nActual Price: ${actual_price:.2f}\nPrediction not available (missing indicators or lag values)"
-            
-    except KeyError:
-        return f"Data for {query_date_str} not found in the dataset."
-    except Exception as e:
-        return f"An error occurred: {str(e)}"
+            if (self.img[new_y, new_x] == self.grid_color).all():
+                tail = self.body.get()
+                self.color_square(tail, self.grid_color)
+            elif (self.img[new_y, new_x] == self.food_color).all():
+                self.score += 1
+                self.food_pos = self.generate_food()
+            self.body.put((new_y, new_x))
+            self.color_square(self.head, self.body_color)
+            self.head = (new_y, new_x)
+            self.color_square(self.head, self.head_color)
 
-# Step 6: Example Usage
-print("\nTesting the prediction function:")
+    def end_game(self):
+        self.game_over = True
+        self.img[self.h//5:self.h*4//6, self.w//5:self.w*4//5] = (0.2, 0.2, 0.2)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        cv2.putText(self.img, 'Game over!', (self.w//3, self.h*2//7), font, 1.5, (1., 1., 1.), 4, 2)
+        cv2.putText(self.img, 'Score:', (self.w*7//16, self.h * 3 // 8), font, 1.1, (1., 1., 1.), 1, 2)
+        cv2.putText(self.img, str(self.score), (self.w * 7 // 16, self.h * 4//8), font, 2, (1., 1., 1.), 3, 2)
+        cv2.putText(self.img, 'Press y to play again or n to quit', (self.w//4, self.h * 5 // 8), font, 0.75, (1., 1., 1.), 1, 2)
 
-# Test with a weekend date
-query_date_weekend = '2023-05-20'  # A Saturday
-result_weekend = predict_and_get_actual(query_date_weekend)
-print(f"\nWeekend test: {result_weekend}")
+    def generate_food(self):
+        y = random.randrange(self.h)//self.cell_size*self.cell_size
+        x = random.randrange(self.w)//self.cell_size*self.cell_size
+        while (self.img[y, x] != self.grid_color).any():
+            y = random.randrange(self.h) // self.cell_size * self.cell_size
+            x = random.randrange(self.w) // self.cell_size * self.cell_size
+        self.color_square((y, x), self.food_color)
+        return y, x
 
-# Test with a weekday during training period
-query_date_train = '2015-07-20'
-result_train = predict_and_get_actual(query_date_train)
-print(f"\nTraining period test: {result_train}")
+    def play(self):
+        while True:
+            self.__init__()
+            while not self.game_over:
+                cv2.imshow('Snake', self.img)
+                k = cv2.waitKeyEx(self.game_speed)
+                UP_KEY, LEFT_KEY, DOWN_KEY, RIGHT_KEY = 2490368, 2424832, 2621440, 2555904
+                if k == UP_KEY and self.direction != 'down':
+                    self.direction = 'up'
+                elif k == LEFT_KEY and self.direction != 'right':
+                    self.direction = 'left'
+                elif k == DOWN_KEY and self.direction != 'up':
+                    self.direction = 'down'
+                elif k == RIGHT_KEY and self.direction != 'left':
+                    self.direction = 'right'
+                if self.direction:
+                    self.move()
+            choice = ''
+            while choice not in ['y', 'n']:
+                cv2.imshow('Snake', self.img)
+                choice = chr(cv2.waitKey(0) & 0xFF)
+            if choice == 'n':
+                break
+        cv2.destroyAllWindows()
 
-# Test with a recent date
-query_date_recent = '2023-05-15'  # A weekday
-result_recent = predict_and_get_actual(query_date_recent)
-print(f"\nRecent date test: {result_recent}")
 
-# For interactive use
-def interactive_prediction():
-    while True:
-        user_date = input("\nEnter a date (YYYY-MM-DD) between 2013-01-01 and 2024-05-31 (or 'quit' to exit): ")
-        if user_date.lower() == 'quit':
-            break
-        result = predict_and_get_actual(user_date)
-        print(result)
-
-print("\nEntering interactive mode. You can test any date:")
-interactive_prediction()
+snake_game = SnakeGame()
+snake_game.play()
