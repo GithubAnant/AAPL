@@ -14,6 +14,7 @@ X, y = make_classification(n_samples=200, n_features=2, n_redundant=0,
 scaler = StandardScaler()
 X = scaler.fit_transform(X)
 
+
 # Train-test split
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
 
