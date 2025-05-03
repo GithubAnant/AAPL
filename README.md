@@ -24,6 +24,7 @@ Predict Apple stock prices from 2013 to 2025 using machine learning — with act
 
 ## 📷 Demo
 ![App Screenshot](webapp.jpeg)
+![App Screenshot](demo.jpeg)
 
 ## 📦 How to Run
 ### Backend (Flask API)
